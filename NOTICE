@@ -1,0 +1,31 @@
+NOAA Tides Integration for Home Assistant
+Copyright 2024 Flight-Lab
+
+This product includes software originally developed by Flight-Lab
+(https://github.com/Flight-Lab/HA_Noaa_Tides), licensed under the
+Apache License, Version 2.0.
+
+This fork is maintained by netFusion Solutions
+(https://github.com/netFusion-Solutions/HA_Noaa_Tides).
+
+Per Apache License 2.0, Section 4(b), the following changes have been made
+to the original work:
+
+- Fixed tide prediction sensor going unavailable nightly between midnight
+  and the first tide of the day, caused by a prediction window that could
+  start after every tide in range (api_clients/noaa_api_client.py).
+- Guarded against unavailable "following tide" data cascading into loss of
+  all other tide attributes.
+- Fixed barometric pressure sensor reporting millibars mislabeled as inches
+  of mercury, producing values off by a factor of ~33.86
+  (sensors/noaa_sensors.py).
+- Added optional datum correction: applies NOAA's published monthly mean
+  sea level offset to tide prediction levels, correcting for sea-level rise
+  and seasonal variation since the 1983-2001 tidal epoch. Off by default;
+  enabled via integration options.
+- Rebranded package metadata (manifest.json, documentation and issue
+  tracker links) to point at the netFusion-Solutions fork.
+
+The bug fixes above have also been submitted upstream as pull requests to
+Flight-Lab/HA_Noaa_Tides. The datum correction feature is fork-specific and
+is not part of those submissions.

@@ -398,3 +398,6 @@ FodyWeavers.xsd
 
 # JetBrains Rider
 *.sln.iml
+
+# Scratch files (working agreement: never /tmp, never a session scratchpad)
+tmp/

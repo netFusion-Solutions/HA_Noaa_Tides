@@ -1,14 +1,14 @@
 {
   "domain": "noaa_tides",
   "name": "NOAA Tides",
-  "codeowners": ["@Flight-Lab"],
+  "codeowners": ["@netFusion-Solutions"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/Flight-Lab/ha_noaa_tides",
+  "documentation": "https://github.com/netFusion-Solutions/HA_Noaa_Tides",
   "integration_type": "device",
   "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/Flight-Lab/ha_noaa_tides/issues",
+  "issue_tracker": "https://github.com/netFusion-Solutions/HA_Noaa_Tides/issues",
   "loggers": ["noaa_tides"],
   "requirements": [],
-  "version": "0.7.0"
+  "version": "0.8.0"
 }

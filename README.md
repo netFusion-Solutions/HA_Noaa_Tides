@@ -1,10 +1,20 @@
 # NOAA Tides Integration for Home Assistant
 
+> [!NOTE]
+> **This is netFusion Solutions' fork** of [Flight-Lab/HA_Noaa_Tides](https://github.com/Flight-Lab/HA_Noaa_Tides). It is a drop-in replacement — same `noaa_tides` domain, same entity IDs, same config entries — so it is meant to *replace* the upstream install, not run alongside it. See [What's different from upstream](#whats-different-from-upstream) below, and [NOTICE](NOTICE) for the required Apache-2.0 change log.
 
-<!--[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)--> 
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 A custom component for Home Assistant that provides real-time tidal, current, and environmental data from NOAA's Center for Operational Oceanographic Products and Services (CO-OPS) API and the National Data Buoy Center (NDBC) API. This component enhances and extends the functionality of the [legacy NOAA Tides core component](https://www.home-assistant.io/integrations/noaa_tides/), offering UI configurability, automatic sensor detection, and enhanced data handling.
+
+## What's different from upstream
+
+This fork carries two bug fixes (also submitted upstream as PRs) and one fork-only feature:
+
+- **Fix: tide predictions no longer die overnight.** The upstream prediction window started at midnight, so between midnight and the day's first tide there was no "past" tide to anchor to and the sensor dropped every attribute and went `unavailable`. The window now starts a day earlier and is widened to 72 hours, verified clean across a full day at 15-minute resolution.
+- **Fix: barometric pressure reads correctly.** NOAA's `air_pressure` product returns millibars regardless of the requested unit system, but the imperial sensor was labelled inHg, inflating displayed pressure by ~33.86x (e.g. 1018.7 mb showing as 34500 hPa). It now reports natively in hPa/mb and lets Home Assistant convert for imperial display.
+- **Feature (opt-in, off by default): datum correction.** NOAA tide predictions are astronomical, referenced to the 1983-2001 tidal epoch, and can run persistently below observed water level due to sea-level rise and seasonal mean-sea-level variation. When enabled in the integration options, this fork corrects predicted tide levels using NOAA's own published monthly-mean-sea-level offset (refreshed monthly, computed live — never hardcoded per station) and exposes the raw predictions and the applied offset alongside the corrected values. This is a fork-only feature and is not part of the upstream pull requests.
 
 > [!IMPORTANT]  
 > **Pre-1.0 Notice**: Sensor entity names and some attributes may change before v1.0.0. 
@@ -47,7 +57,6 @@ A custom component for Home Assistant that provides real-time tidal, current, an
 
 ## Installation
 
-<!--
 ### Using HACS (Recommended)
 
 1. Ensure you have [HACS](https://hacs.xyz/) installed
@@ -55,10 +64,12 @@ A custom component for Home Assistant that provides real-time tidal, current, an
    - Go to HACS > Integrations
    - Click the three dots in the top right
    - Select "Custom repositories"
-   - Add `Flight-Lab/home_assistant_noaa_tides` with Category "Integration"
+   - Add `https://github.com/netFusion-Solutions/HA_Noaa_Tides` with Category "Integration"
 3. Click "Install"
 4. Restart Home Assistant
--->
+
+> [!IMPORTANT]
+> This fork uses the same `noaa_tides` domain as upstream. If you have the Flight-Lab version installed, remove it first (HACS will refuse to install a domain clash) — your config entry and entity IDs carry over unchanged.
 
 ### Manual Installation
 
@@ -119,7 +130,7 @@ This project is licensed under the Apache 2.0 License - see the LICENSE file for
 
 ## Support
 
-For bugs and feature requests, please [open an issue](https://github.com/Flight-Lab/ha_noaa_tides/issues) on GitHub.
+For bugs and feature requests, please [open an issue](https://github.com/netFusion-Solutions/HA_Noaa_Tides/issues) on GitHub.
 
 <!--
 
