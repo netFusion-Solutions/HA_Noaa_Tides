@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import math
 from typing import Any, Final
@@ -37,6 +37,7 @@ from ..data_constants import (
     SLACK_WATER_THRESHOLD,
     TIDE_TIME_FORMAT,
 )
+from ..tide_selection import select_tide_window
 from ..types import CoordinatorData
 from .base_api_client import BaseApiClient
 
@@ -151,8 +152,11 @@ class NoaaApiClient(BaseApiClient):
             "units": "metric" if self.unit_system == UNIT_METRIC else "english",
             "format": "json",
             "interval": "hilo",  # Get only high/low predictions
-            "begin_date": datetime.now().strftime("%Y%m%d"),
-            "range": MAX_PREDICTION_HOURS,  # Get 48 hours of predictions
+            # Start the window a day back so there is always a tide in the
+            # past to anchor to, even between midnight and the first tide
+            # of the day (see MAX_PREDICTION_HOURS for the matching range).
+            "begin_date": (datetime.now() - timedelta(days=1)).strftime("%Y%m%d"),
+            "range": MAX_PREDICTION_HOURS,
         }
 
         try:
@@ -162,6 +166,10 @@ class NoaaApiClient(BaseApiClient):
             predictions = data.get("predictions", [])
 
             if not predictions:
+                _LOGGER.debug(
+                    f"NOAA Station {self.station_id}: No tide predictions returned for window "
+                    f"begin_date={params['begin_date']} range={params['range']}"
+                )
                 return {}
 
             now = datetime.now()
@@ -178,24 +186,16 @@ class NoaaApiClient(BaseApiClient):
                     }
                 )
 
-            # Sort predictions by time
-            formatted_predictions.sort(key=lambda x: x["time"])
-
-            # Find last tide and next tide
-            last_tide = None
-            next_tide = None
-            following_tide = None
-
-            for pred in formatted_predictions:
-                if pred["time"] <= now:
-                    last_tide = pred
-                elif next_tide is None:
-                    next_tide = pred
-                elif following_tide is None:
-                    following_tide = pred
-                    break
+            # Find last, next, and following tide
+            last_tide, next_tide, following_tide = select_tide_window(
+                formatted_predictions, now
+            )
 
             if not (last_tide and next_tide):
+                _LOGGER.debug(
+                    f"NOAA Station {self.station_id}: Could not find both a last and next tide "
+                    f"in {len(formatted_predictions)} predictions around {now}"
+                )
                 return {}
 
             # Calculate tide factor and percentage
@@ -203,6 +203,11 @@ class NoaaApiClient(BaseApiClient):
             elapsed_time = (now - last_tide["time"]).total_seconds()
 
             if elapsed_time < 0 or elapsed_time > predicted_period:
+                _LOGGER.debug(
+                    f"NOAA Station {self.station_id}: Elapsed time {elapsed_time}s outside "
+                    f"predicted period {predicted_period}s between {last_tide['time']} and "
+                    f"{next_tide['time']}"
+                )
                 return {}
 
             if next_tide["type"] == "H":
@@ -223,34 +228,45 @@ class NoaaApiClient(BaseApiClient):
             next_tide_time = next_tide["time"].strftime(TIDE_TIME_FORMAT)
             tide_state = f"{next_tide_type} tide at {next_tide_time}"
 
+            attributes = {
+                ATTR_NEXT_TIDE_TYPE: "High" if next_tide["type"] == "H" else "Low",
+                ATTR_NEXT_TIDE_TIME: next_tide["time"].strftime(TIDE_TIME_FORMAT),
+                ATTR_NEXT_TIDE_LEVEL: next_tide["level"],
+                ATTR_LAST_TIDE_TYPE: "High" if last_tide["type"] == "H" else "Low",
+                ATTR_LAST_TIDE_TIME: last_tide["time"].strftime(TIDE_TIME_FORMAT),
+                ATTR_LAST_TIDE_LEVEL: last_tide["level"],
+                ATTR_TIDE_FACTOR: round(tide_factor, DECIMAL_PRECISION),
+                ATTR_TIDE_PERCENTAGE: round(tide_percentage, DECIMAL_PRECISION),
+            }
+
+            # A third tide isn't always in range (e.g. near the end of the
+            # prediction window); omit the following_* attributes rather
+            # than losing every attribute to a KeyError/TypeError below.
+            if following_tide is not None:
+                attributes[ATTR_FOLLOWING_TIDE_TYPE] = (
+                    "High" if following_tide["type"] == "H" else "Low"
+                )
+                attributes[ATTR_FOLLOWING_TIDE_TIME] = following_tide["time"].strftime(
+                    TIDE_TIME_FORMAT
+                )
+                attributes[ATTR_FOLLOWING_TIDE_LEVEL] = following_tide["level"]
+            else:
+                _LOGGER.debug(
+                    f"NOAA Station {self.station_id}: No following tide in prediction "
+                    f"window; omitting following_* attributes"
+                )
+
             return {
                 "tide_predictions": {
                     "state": tide_state,
-                    "attributes": {
-                        ATTR_NEXT_TIDE_TYPE: "High"
-                        if next_tide["type"] == "H"
-                        else "Low",
-                        ATTR_NEXT_TIDE_TIME: next_tide["time"].strftime(TIDE_TIME_FORMAT),
-                        ATTR_NEXT_TIDE_LEVEL: next_tide["level"],
-                        ATTR_FOLLOWING_TIDE_TYPE: "High"
-                        if following_tide["type"] == "H"
-                        else "Low",
-                        ATTR_FOLLOWING_TIDE_TIME: following_tide["time"].strftime(
-                            TIDE_TIME_FORMAT
-                        ),
-                        ATTR_FOLLOWING_TIDE_LEVEL: following_tide["level"],
-                        ATTR_LAST_TIDE_TYPE: "High"
-                        if last_tide["type"] == "H"
-                        else "Low",
-                        ATTR_LAST_TIDE_TIME: last_tide["time"].strftime(TIDE_TIME_FORMAT),
-                        ATTR_LAST_TIDE_LEVEL: last_tide["level"],
-                        ATTR_TIDE_FACTOR: round(tide_factor, DECIMAL_PRECISION),
-                        ATTR_TIDE_PERCENTAGE: round(tide_percentage, DECIMAL_PRECISION),
-                    },
+                    "attributes": attributes,
                 }
             }
 
-        except UpdateFailed:
+        except UpdateFailed as err:
+            _LOGGER.debug(
+                f"NOAA Station {self.station_id}: Tide predictions request failed: {err}"
+            )
             return {}
         except Exception as err:
             _LOGGER.error(
@@ -336,6 +352,11 @@ class NoaaApiClient(BaseApiClient):
             dict[str, Any]: Dictionary containing currents prediction data if available
 
         """
+        # Unlike _fetch_tide_predictions, this doesn't select a last/next tide
+        # relative to now -- it just reads predictions[0], so it can't return
+        # {} because "now" falls before the first entry in the window. The
+        # midnight-window defect (see _fetch_tide_predictions) doesn't apply
+        # here; begin_date is left as today.
         params = {
             "station": self.station_id,
             "product": "currents_predictions",
@@ -343,7 +364,7 @@ class NoaaApiClient(BaseApiClient):
             "units": "metric" if self.unit_system == UNIT_METRIC else "english",
             "format": "json",
             "begin_date": datetime.now().strftime("%Y%m%d"),
-            "range": MAX_PREDICTION_HOURS,  # Get 48 hours of predictions
+            "range": MAX_PREDICTION_HOURS,  # Get 72 hours of predictions
         }
 
         try:
