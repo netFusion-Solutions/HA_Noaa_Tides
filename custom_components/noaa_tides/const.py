@@ -32,6 +32,7 @@ CONF_UNIT_SYSTEM: Final = "unit_system"
 CONF_UPDATE_INTERVAL: Final = "update_interval"
 CONF_DATA_SECTIONS: Final = "data_sections"
 CONF_STATION_TYPE: Final = "station_type"
+CONF_DATUM_CORRECTION: Final = "datum_correction"
 
 # Timezone Options
 TIMEZONE_GMT: Final = "gmt"
@@ -84,6 +85,7 @@ DEFAULT_TIMEZONE: Final = TIMEZONE_LST_LDT
 DEFAULT_UNIT_SYSTEM: Final = UNIT_IMPERIAL
 DEFAULT_UPDATE_INTERVAL: Final = 300  # 5 minutes in seconds
 DEFAULT_TIMEOUT: Final = 30  # seconds
+DEFAULT_DATUM_CORRECTION: Final = False  # Opt-in; off preserves NOAA's published figures
 
 # Tide Icon Display Thresholds
 LOW_TIDE_THRESHOLD: Final = 15.0  # Below this = low tide state icon
@@ -102,6 +104,14 @@ ATTR_LAST_TIDE_TIME: Final = "last_tide_time"
 ATTR_LAST_TIDE_LEVEL: Final = "last_tide_level"
 ATTR_TIDE_FACTOR: Final = "tide_factor"
 ATTR_TIDE_PERCENTAGE: Final = "tide_percentage"
+# Datum correction (fork-only, opt-in): preserved raw predictions and the
+# applied offset, exposed only when datum_correction is enabled.
+ATTR_RAW_LAST_TIDE_LEVEL: Final = "raw_last_tide_level"
+ATTR_RAW_NEXT_TIDE_LEVEL: Final = "raw_next_tide_level"
+ATTR_RAW_FOLLOWING_TIDE_LEVEL: Final = "raw_following_tide_level"
+ATTR_DATUM_OFFSET: Final = "datum_offset"
+ATTR_DATUM_OFFSET_SOURCE: Final = "datum_offset_source"
+ATTR_DATUM_EPOCH: Final = "datum_epoch"
 ATTR_CURRENTS_SPEED: Final = "currents_speed"
 ATTR_CURRENTS_DIRECTION: Final = "currents_direction"
 ATTR_CURRENTS_TIME: Final = "currents_time"
