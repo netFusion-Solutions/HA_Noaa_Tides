@@ -97,8 +97,12 @@ NOAA_SENSOR_TYPES: Final[dict[str, NoaaTidesSensorEntityDescription]] = {
         name="Barometric Pressure",
         device_class=SensorDeviceClass.PRESSURE,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_metric=UnitOfPressure.HPA,
-        unit_imperial=UnitOfPressure.INHG,
+        # NOAA's air_pressure product always returns millibars regardless of
+        # the requested units param, so report it natively as hPa (1 mb ==
+        # 1 hPa) in both unit systems rather than mislabeling it inHg -- HA
+        # converts for display via device_class=PRESSURE for users who want
+        # imperial units.
+        native_unit_of_measurement=UnitOfPressure.HPA,
         is_ndbc=False,
     ),
     "humidity": NoaaTidesSensorEntityDescription(
