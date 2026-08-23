@@ -32,7 +32,10 @@ MAX_CONSECUTIVE_FAILURES: Final = 3
 DEFAULT_RETRY_DELAY: Final = 2  # seconds
 
 # API response limits
-MAX_PREDICTION_HOURS: Final = 48  # Hours of predictions to fetch
+# 72h combined with a begin_date one day back ensures there is always a
+# last/next/following tide in range, even between midnight and the first
+# tide of the day. Verified against live data; see research/window_compare.py.
+MAX_PREDICTION_HOURS: Final = 72  # Hours of predictions to fetch
 MIN_REQUIRED_PREDICTIONS: Final = 2  # Minimum predictions needed for calculations
 
 
