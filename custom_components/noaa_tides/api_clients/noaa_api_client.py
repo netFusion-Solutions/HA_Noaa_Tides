@@ -11,7 +11,7 @@ from typing import Any, Final
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from ..api_constants import get_noaa_data_url
+from ..api_constants import get_noaa_data_url, get_noaa_datums_url
 from ..const import (
     ATTR_CURRENTS_DIRECTION,
     ATTR_CURRENTS_SPEED,
@@ -31,12 +31,14 @@ from ..const import (
     UNIT_METRIC,
 )
 from ..data_constants import (
+    DATUM_OFFSET_LOOKBACK_DAYS,
     DECIMAL_PRECISION,
     MAX_PREDICTION_HOURS,
     MIN_REQUIRED_PREDICTIONS,
     SLACK_WATER_THRESHOLD,
     TIDE_TIME_FORMAT,
 )
+from ..datum_offset import DatumLookupError, DatumOffsetResult, compute_datum_offset
 from ..tide_selection import select_tide_window
 from ..types import CoordinatorData
 from .base_api_client import BaseApiClient
@@ -273,6 +275,59 @@ class NoaaApiClient(BaseApiClient):
                 f"NOAA Station {self.station_id}: Error calculating tide predictions: {err} ({type(err).__name__})"
             )
             return {}
+
+    async def async_get_datum_offset(self) -> DatumOffsetResult:
+        """Compute the live datum-correction offset for this station.
+
+        NOAA's tide predictions are astronomical, referenced to the
+        published 1983-2001 tidal epoch (MSL_epoch, from datums.json).
+        Observed water level runs persistently above prediction due to
+        sea-level rise and seasonal mean-sea-level variation since that
+        epoch. Both terms are published by NOAA relative to the same
+        station datum (STND), so the difference is a clean, station- and
+        month-specific correction:
+
+            offset = MSL_observed (most recent monthly_mean) - MSL_epoch
+
+        This is a fork-only, opt-in feature (see const.CONF_DATUM_CORRECTION)
+        -- callers are responsible for caching the result and must never let
+        a failure here take the tide_predictions entity unavailable.
+
+        Returns:
+            DatumOffsetResult: offset (in this client's unit_system),
+                source (e.g. "monthly_mean 2026-07"), and epoch (e.g.
+                "1983-2001").
+
+        Raises:
+            UpdateFailed: if either lookup fails or returns no usable data.
+
+        """
+        datums_data = await self._safe_request_with_retry(
+            get_noaa_datums_url(self.station_id), operation="fetching station datums"
+        )
+
+        end_date = datetime.now()
+        begin_date = end_date - timedelta(days=DATUM_OFFSET_LOOKBACK_DAYS)
+        params = {
+            "station": self.station_id,
+            "product": "monthly_mean",
+            "datum": "STND",
+            "time_zone": "lst",
+            "units": "metric" if self.unit_system == UNIT_METRIC else "english",
+            "format": "json",
+            "begin_date": begin_date.strftime("%Y%m%d"),
+            "end_date": end_date.strftime("%Y%m%d"),
+        }
+        monthly_data = await self._safe_request_with_retry(
+            get_noaa_data_url(), params=params, operation="fetching monthly mean sea level"
+        )
+
+        try:
+            return compute_datum_offset(
+                datums_data, monthly_data.get("data", []), self.unit_system
+            )
+        except DatumLookupError as err:
+            raise UpdateFailed(f"NOAA Station {self.station_id}: {err}") from err
 
     async def _fetch_sensor_data(self, sensor_type: str) -> dict[str, Any]:
         """Fetch data for a specific NOAA sensor.

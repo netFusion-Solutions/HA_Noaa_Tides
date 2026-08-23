@@ -43,6 +43,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             const.CONF_UPDATE_INTERVAL, const.DEFAULT_UPDATE_INTERVAL
         ),
         data_sections=entry.data.get(const.CONF_DATA_SECTIONS, []),
+        datum_correction=entry.options.get(
+            const.CONF_DATUM_CORRECTION, const.DEFAULT_DATUM_CORRECTION
+        ),
     )
 
     # Store coordinator before first refresh to ensure it's available for the platforms

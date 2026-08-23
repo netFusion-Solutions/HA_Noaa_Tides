@@ -37,7 +37,8 @@
         "title": "NOAA Tides Options",
         "description": "Update integration settings",
         "data": {
-          "update_interval": "Update Interval (60-3600 seconds)"
+          "update_interval": "Update Interval (60-3600 seconds)",
+          "datum_correction": "Datum correction (NOAA stations only): correct predicted tide levels using NOAA's published monthly mean sea level offset, to account for sea-level rise and seasonal variation since the tidal epoch. Off by default; raw NOAA predictions are always preserved as raw_* attributes."
         }
       }
     }

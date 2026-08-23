@@ -75,6 +75,18 @@ def get_noaa_sensors_url(station_id: str) -> str:
     return f"https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations/{station_id}/sensors.json"
 
 
+def get_noaa_datums_url(station_id: str) -> str:
+    """Generate NOAA datums URL for given station ID.
+
+    Args:
+        station_id: The NOAA station identifier
+
+    Returns:
+        str: Complete URL for station datums (published tidal epoch values)
+    """
+    return f"https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations/{station_id}/datums.json"
+
+
 def get_noaa_data_url() -> str:
     """Get the NOAA data API base URL.
     

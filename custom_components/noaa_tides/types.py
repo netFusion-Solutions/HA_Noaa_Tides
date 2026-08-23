@@ -120,6 +120,13 @@ class TidePredictionAttributes(dict[str, Any]):
     last_tide_level: float
     tide_factor: float
     tide_percentage: float
+    # Present only when datum_correction is enabled (fork-only feature).
+    raw_next_tide_level: NotRequired[float]
+    raw_last_tide_level: NotRequired[float]
+    raw_following_tide_level: NotRequired[float]
+    datum_offset: NotRequired[float]
+    datum_offset_source: NotRequired[str]
+    datum_epoch: NotRequired[str]
 
 
 class TidePredictionData(dict[str, Any]):

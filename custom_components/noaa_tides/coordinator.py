@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
 from typing import Any, Final, Literal
 
@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from . import const
 from .api_clients import NoaaApiClient, NdbcApiClient
-from .data_constants import MAX_CONSECUTIVE_FAILURES, LogMessages
+from .data_constants import DECIMAL_PRECISION, MAX_CONSECUTIVE_FAILURES, LogMessages
 from .errors import NoaaApiError, NdbcApiError, ApiError
 from .types import CoordinatorData
 from .utils import determine_required_data_sections
@@ -39,6 +39,7 @@ class NoaaTidesDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
         unit_system: str = const.DEFAULT_UNIT_SYSTEM,
         update_interval: int = const.DEFAULT_UPDATE_INTERVAL,
         data_sections: list[str] | None = None,
+        datum_correction: bool = const.DEFAULT_DATUM_CORRECTION,
     ) -> None:
         """Initialize the coordinator.
 
@@ -51,12 +52,25 @@ class NoaaTidesDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
             unit_system: The unit system to use
             update_interval: Update interval in seconds
             data_sections: Selected data sections for NDBC
+            datum_correction: Whether to apply the fork-only datum
+                correction to tide_predictions levels (NOAA stations only)
         """
         self.station_id: Final = station_id
         self.station_type: Final = station_type
         self.selected_sensors: Final = selected_sensors
         self.timezone: Final = timezone
         self.unit_system: Final = unit_system
+
+        # Datum correction (fork-only, opt-in): only meaningful for NOAA
+        # tide predictions. Cached and refreshed monthly since it's a
+        # monthly statistic -- see _async_refresh_datum_offset.
+        self.datum_correction_enabled: Final = (
+            datum_correction and station_type == const.STATION_TYPE_NOAA
+        )
+        self._datum_offset: float = 0.0
+        self._datum_offset_source: str | None = None
+        self._datum_epoch: str | None = None
+        self._datum_offset_fetched_month: tuple[int, int] | None = None
 
         # For NDBC, determine required data sections based on selected sensors
         if station_type == const.STATION_TYPE_NDBC:
@@ -114,6 +128,10 @@ class NoaaTidesDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
         try:
             # Set a timeout for the entire data fetch operation
             async with asyncio.timeout(30):
+                # Refresh the cached datum offset if it's due (monthly).
+                # Never raises -- failures fall back to the cached offset.
+                await self._async_refresh_datum_offset()
+
                 # Attempt to fetch data
                 data = await self.api_client.fetch_data(self.selected_sensors)
 
@@ -177,6 +195,9 @@ class NoaaTidesDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
                 for sensor in list(self._failed_sensors.keys()):
                     if sensor not in missing_sensors:
                         del self._failed_sensors[sensor]
+
+                if self.datum_correction_enabled:
+                    self._apply_datum_correction(data)
 
                 return data
 
@@ -287,6 +308,70 @@ class NoaaTidesDataUpdateCoordinator(DataUpdateCoordinator[CoordinatorData]):
             raise UpdateFailed(
                 f"Error fetching data from {source_type} {self.station_id}: {err}"
             )
+
+    async def _async_refresh_datum_offset(self) -> None:
+        """Refresh the cached datum-correction offset, at most once a month.
+
+        This must never make tide_predictions unavailable: on any failure
+        it logs a warning and keeps using whatever offset is already
+        cached (0.0, applying no correction, if nothing has ever
+        succeeded yet).
+        """
+        if not self.datum_correction_enabled:
+            return
+
+        now = datetime.now()
+        current_month = (now.year, now.month)
+        if self._datum_offset_fetched_month == current_month:
+            return
+
+        try:
+            result = await self.api_client.async_get_datum_offset()
+        except Exception as err:
+            _LOGGER.warning(
+                f"NOAA Station {self.station_id}: Could not refresh datum offset, "
+                f"reusing cached value {self._datum_offset} ft/m "
+                f"({self._datum_offset_source or 'no successful lookup yet'}): {err}"
+            )
+            return
+
+        self._datum_offset = result["offset"]
+        self._datum_offset_source = result["source"]
+        self._datum_epoch = result["epoch"]
+        self._datum_offset_fetched_month = current_month
+        _LOGGER.debug(
+            f"NOAA Station {self.station_id}: Refreshed datum offset to "
+            f"{self._datum_offset} ({self._datum_offset_source})"
+        )
+
+    def _apply_datum_correction(self, data: CoordinatorData) -> None:
+        """Correct tide_predictions levels in place using the cached offset.
+
+        Preserves the original NOAA values as raw_* attributes and exposes
+        the applied offset/source/epoch so the correction stays visible and
+        debuggable (see const.CONF_DATUM_CORRECTION).
+        """
+        tide_data = data.get("tide_predictions")
+        if not tide_data:
+            return
+        attributes = tide_data.get("attributes")
+        if not attributes:
+            return
+
+        for raw_attr, level_attr in (
+            (const.ATTR_RAW_LAST_TIDE_LEVEL, const.ATTR_LAST_TIDE_LEVEL),
+            (const.ATTR_RAW_NEXT_TIDE_LEVEL, const.ATTR_NEXT_TIDE_LEVEL),
+            (const.ATTR_RAW_FOLLOWING_TIDE_LEVEL, const.ATTR_FOLLOWING_TIDE_LEVEL),
+        ):
+            if level_attr in attributes:
+                attributes[raw_attr] = attributes[level_attr]
+                attributes[level_attr] = round(
+                    attributes[level_attr] + self._datum_offset, DECIMAL_PRECISION
+                )
+
+        attributes[const.ATTR_DATUM_OFFSET] = self._datum_offset
+        attributes[const.ATTR_DATUM_OFFSET_SOURCE] = self._datum_offset_source
+        attributes[const.ATTR_DATUM_EPOCH] = self._datum_epoch
 
     def _get_missing_sensors(self, data: CoordinatorData) -> list[str]:
         """Identify selected sensors that are missing from the data.

@@ -31,6 +31,11 @@ ISO_TIME_FORMAT: Final = "%Y-%m-%d %H:%M"
 MAX_CONSECUTIVE_FAILURES: Final = 3
 DEFAULT_RETRY_DELAY: Final = 2  # seconds
 
+# Datum correction (fork-only, opt-in)
+# monthly_mean is typically published with a 1-2 month lag; looking back far
+# enough guarantees at least one row even right after a new month starts.
+DATUM_OFFSET_LOOKBACK_DAYS: Final = 200
+
 # API response limits
 # 72h combined with a begin_date one day back ensures there is always a
 # last/next/following tide in range, even between midnight and the first

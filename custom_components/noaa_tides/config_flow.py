@@ -260,4 +260,15 @@ class NoaaTidesOptionsFlow(config_entries.OptionsFlow):
             ): vol.All(vol.Coerce(int), vol.Range(min=60, max=3600)),
         }
 
+        # Datum correction only applies to NOAA tide predictions, not NDBC buoys.
+        if self._config_entry.data.get(const.CONF_STATION_TYPE) == const.STATION_TYPE_NOAA:
+            options[
+                vol.Required(
+                    const.CONF_DATUM_CORRECTION,
+                    default=self._config_entry.options.get(
+                        const.CONF_DATUM_CORRECTION, const.DEFAULT_DATUM_CORRECTION
+                    ),
+                )
+            ] = bool
+
         return self.async_show_form(step_id="init", data_schema=vol.Schema(options))
